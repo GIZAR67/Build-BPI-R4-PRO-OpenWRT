@@ -103,6 +103,36 @@ jobs:
           fi
           grep -E "CONFIG_TARGET_|CONFIG_TARGET_ROOTFS_(INITRAMFS|INITRAMFS_SEPARATE|SQUASHFS)" .config
 
+      - name: Force TUN and WireGuard in Kernel Config
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Patch the target kernel config AFTER defconfig, before build
+          # The filogic config-6.6 overrides generic config
+          KCONF="target/linux/mediatek/filogic/config-6.6"
+          
+          # Remove any existing TUN/WG lines
+          sed -i '/CONFIG_TUN[= ]/d' "$KCONF"
+          sed -i '/CONFIG_TUN_VNET_CROSS_LE/d' "$KCONF"
+          sed -i '/CONFIG_WIREGUARD[= ]/d' "$KCONF"
+          
+          # Add as built-in (=y, not =m)
+          echo "" >> "$KCONF"
+          echo "# Force-enabled for AmneziaWG" >> "$KCONF"
+          echo "CONFIG_TUN=y" >> "$KCONF"
+          echo "CONFIG_WIREGUARD=y" >> "$KCONF"
+          
+          echo "=== Final kernel config ==="
+          grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$KCONF"
+          
+          # Also patch the generated .config.target if it exists
+          TARGET_CFG="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.target"
+          if [ -f "$TARGET_CFG" ]; then
+            sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=y/' "$TARGET_CFG"
+            sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/' "$TARGET_CFG"
+            echo "=== Patched .config.target ==="
+            grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$TARGET_CFG"
+          fi
+
       - name: Prepare Linux Firmware Source
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
