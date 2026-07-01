@@ -106,32 +106,40 @@ jobs:
       - name: Force TUN and WireGuard in Kernel Config
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Patch the target kernel config AFTER defconfig, before build
-          # The filogic config-6.6 overrides generic config
+          # Patch ALL kernel config files that feed into the build
+          # 1. filogic target config
           KCONF="target/linux/mediatek/filogic/config-6.6"
-          
-          # Remove any existing TUN/WG lines
-          sed -i '/CONFIG_TUN[= ]/d' "$KCONF"
-          sed -i '/CONFIG_TUN_VNET_CROSS_LE/d' "$KCONF"
-          sed -i '/CONFIG_WIREGUARD[= ]/d' "$KCONF"
-          
-          # Add as built-in (=y, not =m)
+          sed -i '/CONFIG_TUN[= ]/d; /CONFIG_TUN_VNET_CROSS_LE/d; /CONFIG_WIREGUARD[= ]/d' "$KCONF"
           echo "" >> "$KCONF"
-          echo "# Force-enabled for AmneziaWG" >> "$KCONF"
           echo "CONFIG_TUN=y" >> "$KCONF"
           echo "CONFIG_WIREGUARD=y" >> "$KCONF"
           
-          echo "=== Final kernel config ==="
-          grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$KCONF"
+          # 2. generic config (this one was overriding filogic!)
+          GCONF="target/linux/generic/config-6.6"
+          sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=y/' "$GCONF"
+          sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/' "$GCONF"
           
-          # Also patch the generated .config.target if it exists
+          echo "=== filogic config ==="
+          grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$KCONF"
+          echo "=== generic config ==="
+          grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$GCONF"
+
+      - name: Patch .config.target After Generation
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # The build generates .config.target via kconfig.pl during make
+          # We need to patch it AFTER it's generated but BEFORE kernel compile
+          # Create a wrapper script that patches .config.target on every invocation
+          cat > /tmp/patch-kconfig.sh << 'PATCH_EOF'
+          #!/bin/bash
           TARGET_CFG="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.target"
           if [ -f "$TARGET_CFG" ]; then
             sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=y/' "$TARGET_CFG"
             sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/' "$TARGET_CFG"
-            echo "=== Patched .config.target ==="
-            grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$TARGET_CFG"
           fi
+          PATCH_EOF
+          chmod +x /tmp/patch-kconfig.sh
+          echo "Patch script ready"
 
       - name: Prepare Linux Firmware Source
         working-directory: ${{ env.OPENWRT_DIR }}
@@ -148,6 +156,8 @@ jobs:
       - name: Build Firmware
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
+          # Patch .config.target right before build (in case it was regenerated)
+          bash /tmp/patch-kconfig.sh || true
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Verify Official SD Card Image
