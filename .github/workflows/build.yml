@@ -127,24 +127,8 @@ jobs:
       - name: Patch .config.target After Generation
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Patch kconfig.pl itself to force TUN and WIREGUARD in output
-          # kconfig.pl merges config files and writes to stdout
-          # We add a post-processing step at the end of the script
+          # Wrap kconfig.pl to filter output and force TUN/WG enabled
           KCONFIG_PL="scripts/kconfig.pl"
-          
-          # Add force-enable lines at the end of kconfig.pl
-          # The script uses 'process' function to output lines
-          # We'll append a filter that replaces TUN/WG lines
-          cat >> "$KCONFIG_PL" << 'PATCH_APPEND'
-
-          # === FORCE TUN AND WIREGUARD ===
-          # Added by build workflow to enable TUN/WG for AmneziaWG
-          BEGIN { $FORCE_PATCH = 1; }
-          END { }
-          PATCH_APPEND
-          
-          # Actually, simpler: just use sed to replace in the script's output function
-          # The script outputs via print. Let's wrap the whole script.
           cp "$KCONFIG_PL" scripts/kconfig.pl.real
           
           cat > "$KCONFIG_PL" << 'REAL_WRAPPER'
@@ -163,9 +147,9 @@ jobs:
           chmod +x "$KCONFIG_PL"
           
           echo "=== kconfig.pl wrapped ==="
-          head -5 "$KCONFIG_PL"
+          head -3 "$KCONFIG_PL"
           echo "..."
-          tail -10 "$KCONFIG_PL"
+          tail -5 "$KCONFIG_PL"
 
       - name: Prepare Linux Firmware Source
         working-directory: ${{ env.OPENWRT_DIR }}
