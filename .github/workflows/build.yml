@@ -127,19 +127,39 @@ jobs:
       - name: Patch .config.target After Generation
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # The build generates .config.target via kconfig.pl during make
-          # We need to patch it AFTER it's generated but BEFORE kernel compile
-          # Create a wrapper script that patches .config.target on every invocation
-          cat > /tmp/patch-kconfig.sh << 'PATCH_EOF'
-          #!/bin/bash
-          TARGET_CFG="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.target"
-          if [ -f "$TARGET_CFG" ]; then
-            sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=y/' "$TARGET_CFG"
-            sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/' "$TARGET_CFG"
+          # Wrap kconfig.pl to patch .config.target after every invocation
+          if [ ! -f scripts/kconfig.pl.orig ]; then
+            cp scripts/kconfig.pl scripts/kconfig.pl.orig
           fi
-          PATCH_EOF
-          chmod +x /tmp/patch-kconfig.sh
-          echo "Patch script ready"
+          cat > scripts/kconfig.pl << 'WRAPPER_EOF'
+          #!/usr/bin/env perl
+          # Wrapper: call original kconfig.pl, then patch TUN/WG in output
+          my @args = @ARGV;
+          my $output;
+          
+          # Find output file (last arg before > in shell, or last arg)
+          # kconfig.pl is called as: kconfig.pl + file1 file2 > output
+          # But perl doesn't see the > redirect — shell handles it
+          # So we just exec the original and patch after
+          
+          # Execute original script
+          my $ret = system("/usr/bin/perl", "/home/runner/work/Build-BPI-R4-PRO-OpenWRT/Build-BPI-R4-PRO-OpenWRT/openwrt/scripts/kconfig.pl.orig", @args);
+          
+          # Try to patch .config.target if it exists
+          my $target = "build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.target";
+          if (-f $target) {
+            my $content = do { local $/; open my $fh, '<', $target or return $ret; <$fh> };
+            close my $fh;
+            $content =~ s/# CONFIG_TUN is not set/CONFIG_TUN=y/g;
+            $content =~ s/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/g;
+            open my $wfh, '>', $target or return $ret;
+            print $wfh $content;
+            close $wfh;
+          }
+          exit($ret >> 8);
+          WRAPPER_EOF
+          chmod +x scripts/kconfig.pl
+          echo "kconfig.pl wrapper installed"
 
       - name: Prepare Linux Firmware Source
         working-directory: ${{ env.OPENWRT_DIR }}
