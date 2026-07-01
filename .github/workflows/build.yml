@@ -127,29 +127,45 @@ jobs:
       - name: Patch .config.target After Generation
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Create a post-kconfig patch script that runs AFTER kconfig.pl generates .config.target
-          # but BEFORE kernel compile. We'll call it in the Build step.
-          cat > /tmp/patch_kernel_config.sh << 'PATCH_EOF'
-          #!/bin/bash
-          cd /home/runner/work/Build-BPI-R4-PRO-OpenWRT/Build-BPI-R4-PRO-OpenWRT/openwrt
+          # Patch kconfig.pl itself to force TUN and WIREGUARD in output
+          # kconfig.pl merges config files and writes to stdout
+          # We add a post-processing step at the end of the script
+          KCONFIG_PL="scripts/kconfig.pl"
           
-          # Patch all possible kernel config locations
-          for cfgfile in \
-            "build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.target" \
-            "build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.set" \
-            "build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config" \
-            "build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.override"; do
-            if [ -f "$cfgfile" ]; then
-              echo "Patching $cfgfile"
-              sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=y/g' "$cfgfile"
-              sed -i 's/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/g' "$cfgfile"
-              sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/g' "$cfgfile"
-              grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$cfgfile" || true
-            fi
-          done
-          PATCH_EOF
-          chmod +x /tmp/patch_kernel_config.sh
-          echo "Kernel config patch script ready"
+          # Add force-enable lines at the end of kconfig.pl
+          # The script uses 'process' function to output lines
+          # We'll append a filter that replaces TUN/WG lines
+          cat >> "$KCONFIG_PL" << 'PATCH_APPEND'
+
+          # === FORCE TUN AND WIREGUARD ===
+          # Added by build workflow to enable TUN/WG for AmneziaWG
+          BEGIN { $FORCE_PATCH = 1; }
+          END { }
+          PATCH_APPEND
+          
+          # Actually, simpler: just use sed to replace in the script's output function
+          # The script outputs via print. Let's wrap the whole script.
+          cp "$KCONFIG_PL" scripts/kconfig.pl.real
+          
+          cat > "$KCONFIG_PL" << 'REAL_WRAPPER'
+          #!/usr/bin/perl
+          # Wrapper: run real kconfig.pl, filter output to force TUN/WG
+          open(my $pipe, "-|", "/usr/bin/perl", $0 . ".real", @ARGV) or die "Cannot run real kconfig.pl: $!";
+          while (my $line = <$pipe>) {
+              $line =~ s/# CONFIG_TUN is not set/CONFIG_TUN=y/;
+              $line =~ s/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/;
+              $line =~ s/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/;
+              print $line;
+          }
+          close($pipe);
+          exit($? >> 8);
+          REAL_WRAPPER
+          chmod +x "$KCONFIG_PL"
+          
+          echo "=== kconfig.pl wrapped ==="
+          head -5 "$KCONFIG_PL"
+          echo "..."
+          tail -10 "$KCONFIG_PL"
 
       - name: Prepare Linux Firmware Source
         working-directory: ${{ env.OPENWRT_DIR }}
@@ -166,16 +182,6 @@ jobs:
       - name: Build Firmware
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Step 1: Run make to generate kernel config (will fail or succeed, doesn't matter)
-          # The goal is to populate build_dir/.../linux-6.6.93/.config*
-          make -j"$(nproc)" 2>&1 | tail -5 || true
-          
-          # Step 2: Patch kernel config NOW — after kconfig.pl generated it
-          echo "=== Patching kernel config ==="
-          bash /tmp/patch_kernel_config.sh
-          
-          # Step 3: Rebuild with patched config
-          echo "=== Rebuilding with patched config ==="
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Verify Official SD Card Image
