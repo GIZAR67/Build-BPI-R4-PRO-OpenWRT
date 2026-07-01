@@ -55,6 +55,17 @@ jobs:
         run: |
           bash ../scripts/install-feeds.sh
 
+      - name: Remove Broken Packages
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Remove mihomo and its luci app — they fail to build (Go dns library error)
+          rm -rf feeds/small/mihomo feeds/small/luci-app-mihomo
+          rm -rf package/feeds/small/mihomo package/feeds/small/luci-app-mihomo
+          # Also remove from kenzo if present
+          rm -rf feeds/kenzo/mihomo feeds/kenzo/luci-app-mihomo
+          rm -rf package/feeds/kenzo/mihomo package/feeds/kenzo/luci-app-mihomo
+          echo "Removed mihomo packages"
+
       - name: Load Build Config
         run: |
           cp .config "${OPENWRT_DIR}/.config"
@@ -63,6 +74,11 @@ jobs:
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
           make defconfig
+          # Verify mihomo is not enabled
+          if grep -q 'CONFIG_PACKAGE_mihomo=y' .config; then
+            echo "ERROR: mihomo still enabled!"
+            exit 1
+          fi
           grep -E "CONFIG_TARGET_|CONFIG_TARGET_ROOTFS_(INITRAMFS|INITRAMFS_SEPARATE|SQUASHFS)" .config
 
       - name: Prepare Linux Firmware Source
