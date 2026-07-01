@@ -131,25 +131,22 @@ jobs:
           KCONFIG_PL="scripts/kconfig.pl"
           cp "$KCONFIG_PL" scripts/kconfig.pl.real
           
-          cat > "$KCONFIG_PL" << 'REAL_WRAPPER'
-          #!/usr/bin/perl
-          # Wrapper: run real kconfig.pl, filter output to force TUN/WG
-          open(my $pipe, "-|", "/usr/bin/perl", $0 . ".real", @ARGV) or die "Cannot run real kconfig.pl: $!";
-          while (my $line = <$pipe>) {
-              $line =~ s/# CONFIG_TUN is not set/CONFIG_TUN=y/;
-              $line =~ s/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/;
-              $line =~ s/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/;
-              print $line;
-          }
-          close($pipe);
-          exit($? >> 8);
-          REAL_WRAPPER
+          # Write wrapper WITHOUT leading spaces (heredoc with <<- strips tabs, but we use printf for safety)
+          printf '#!/usr/bin/perl\n' > "$KCONFIG_PL"
+          printf '# Wrapper: run real kconfig.pl, filter output to force TUN/WG\n' >> "$KCONFIG_PL"
+          printf 'open(my $pipe, "-|", "/usr/bin/perl", $0 . ".real", @ARGV) or die "Cannot run: $!";\n' >> "$KCONFIG_PL"
+          printf 'while (my $line = <$pipe>) {\n' >> "$KCONFIG_PL"
+          printf '    $line =~ s/# CONFIG_TUN is not set/CONFIG_TUN=y/;\n' >> "$KCONFIG_PL"
+          printf '    $line =~ s/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/;\n' >> "$KCONFIG_PL"
+          printf '    $line =~ s/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/;\n' >> "$KCONFIG_PL"
+          printf '    print $line;\n' >> "$KCONFIG_PL"
+          printf '}\n' >> "$KCONFIG_PL"
+          printf 'close($pipe);\n' >> "$KCONFIG_PL"
+          printf 'exit($? >> 8);\n' >> "$KCONFIG_PL"
           chmod +x "$KCONFIG_PL"
           
           echo "=== kconfig.pl wrapped ==="
-          head -3 "$KCONFIG_PL"
-          echo "..."
-          tail -5 "$KCONFIG_PL"
+          cat "$KCONFIG_PL"
 
       - name: Prepare Linux Firmware Source
         working-directory: ${{ env.OPENWRT_DIR }}
