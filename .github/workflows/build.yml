@@ -50,6 +50,28 @@ jobs:
         run: |
           git clone --depth 1 --branch "${SOURCE_BRANCH}" "${SOURCE_REPO}" "${OPENWRT_DIR}"
 
+      - name: Enable TUN and WireGuard in Kernel Config
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Enable CONFIG_TUN and CONFIG_WIREGUARD in kernel config
+          KCONF="target/linux/mediatek/filogic/config-6.6"
+          echo "=== Before ==="
+          grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$KCONF" || echo "(none found)"
+          
+          # Replace or add CONFIG_TUN
+          sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=y/' "$KCONF"
+          sed -i 's/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/' "$KCONF"
+          
+          # Replace or add CONFIG_WIREGUARD
+          sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/' "$KCONF"
+          
+          # Add if not present
+          grep -q 'CONFIG_TUN=y' "$KCONF" || echo 'CONFIG_TUN=y' >> "$KCONF"
+          grep -q 'CONFIG_WIREGUARD=y' "$KCONF" || echo 'CONFIG_WIREGUARD=y' >> "$KCONF"
+          
+          echo "=== After ==="
+          grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$KCONF"
+
       - name: Update And Install Feeds
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
