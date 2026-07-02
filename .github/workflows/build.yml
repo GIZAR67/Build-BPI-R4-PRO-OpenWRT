@@ -127,11 +127,37 @@ jobs:
       - name: Patch .config.target After Generation
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Wrap kconfig.pl to filter output and force TUN/WG enabled
+          # Strategy: patch kernel Kconfig files to make TUN and WireGuard default y
+          # This ensures olddefconfig picks them up even if kconfig.pl outputs "not set"
+          
+          # Find kernel source dir
+          KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
+          
+          # Patch TUN Kconfig: drivers/net/Kconfig
+          TUN_KC="$KSRC/drivers/net/Kconfig"
+          if [ -f "$TUN_KC" ]; then
+            echo "=== Patching TUN Kconfig ==="
+            # Add "default y" after "config TUN" line
+            sed -i '/^config TUN$/{n;s/\ttristate/\ttristate\n\tdefault y/}' "$TUN_KC" 2>/dev/null || true
+            grep -A3 "^config TUN$" "$TUN_KC" | head -5
+          else
+            echo "TUN Kconfig not found at $TUN_KC — will patch after kernel source is prepared"
+          fi
+          
+          # Patch WireGuard Kconfig: net/wireguard/Kconfig
+          WG_KC="$KSRC/net/wireguard/Kconfig"
+          if [ -f "$WG_KC" ]; then
+            echo "=== Patching WireGuard Kconfig ==="
+            sed -i '/^config WIREGUARD$/{n;s/\ttristate/\ttristate\n\tdefault y/}' "$WG_KC" 2>/dev/null || true
+            grep -A3 "^config WIREGUARD$" "$WG_KC" | head -5
+          else
+            echo "WireGuard Kconfig not found at $WG_KC — will patch after kernel source is prepared"
+          fi
+          
+          # Also wrap kconfig.pl to force TUN/WG in output
           KCONFIG_PL="scripts/kconfig.pl"
           cp "$KCONFIG_PL" scripts/kconfig.pl.real
           
-          # Write wrapper WITHOUT leading spaces (heredoc with <<- strips tabs, but we use printf for safety)
           printf '#!/usr/bin/perl\n' > "$KCONFIG_PL"
           printf '# Wrapper: run real kconfig.pl, filter output to force TUN/WG\n' >> "$KCONFIG_PL"
           printf 'open(my $pipe, "-|", "/usr/bin/perl", $0 . ".real", @ARGV) or die "Cannot run: $!";\n' >> "$KCONFIG_PL"
@@ -145,8 +171,7 @@ jobs:
           printf 'exit($? >> 8);\n' >> "$KCONFIG_PL"
           chmod +x "$KCONFIG_PL"
           
-          echo "=== kconfig.pl wrapped ==="
-          cat "$KCONFIG_PL"
+          echo "=== kconfig.pl + Kconfig patches applied ==="
 
       - name: Prepare Linux Firmware Source
         working-directory: ${{ env.OPENWRT_DIR }}
@@ -159,6 +184,33 @@ jobs:
         run: |
           find dl -size -1024c -delete
           make download -j"$(nproc)" || make download -j1 V=s
+
+      - name: Patch Kernel Kconfig for TUN and WireGuard
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Now kernel source is prepared — patch Kconfig files
+          KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
+          
+          echo "=== Patching TUN Kconfig ==="
+          TUN_KC="$KSRC/drivers/net/Kconfig"
+          if [ -f "$TUN_KC" ]; then
+            # Replace "config TUN\n\ttristate" with "config TUN\n\ttristate\n\tdefault y"
+            sed -i '/^config TUN$/{n;/tristate/{s/tristate/tristate\n\tdefault y/}}' "$TUN_KC"
+            grep -A5 "^config TUN$" "$TUN_KC" | head -6
+          else
+            echo "ERROR: $TUN_KC not found!"
+            find "$KSRC" -name Kconfig -path "*/net/*" | head -10
+          fi
+          
+          echo "=== Patching WireGuard Kconfig ==="
+          WG_KC="$KSRC/net/wireguard/Kconfig"
+          if [ -f "$WG_KC" ]; then
+            sed -i '/^config WIREGUARD$/{n;/tristate/{s/tristate/tristate\n\tdefault y/}}' "$WG_KC"
+            grep -A5 "^config WIREGUARD$" "$WG_KC" | head -6
+          else
+            echo "ERROR: $WG_KC not found!"
+            find "$KSRC" -name Kconfig -path "*wireguard*" | head -5
+          fi
 
       - name: Build Firmware
         working-directory: ${{ env.OPENWRT_DIR }}
