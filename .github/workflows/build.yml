@@ -215,16 +215,16 @@ jobs:
       - name: Build Firmware
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Step 1: Prepare kernel source (unpack + patch + config)
-          echo "=== Preparing kernel source ==="
-          make target/linux/prepare -j1 V=s 2>&1 | tail -20 || true
+          # Step 1: Build toolchain + unpack kernel (this takes time but ensures KSRC exists)
+          echo "=== Building toolchain and unpacking kernel ==="
+          make tools/install -j"$(nproc)" V=s 2>&1 | tail -5 || true
+          make target/linux/compile -j1 V=s 2>&1 | tail -30 || true
           
-          # Step 2: Patch .config files directly — this is the reliable way
+          # Step 2: Patch .config files directly
           KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
           echo "=== Checking kernel source ==="
           ls "$KSRC/.config" 2>/dev/null && echo "KSRC exists" || echo "KSRC does not exist"
           
-          # Patch all .config files
           for cfgfile in "$KSRC/.config" "$KSRC/.config.target" "$KSRC/.config.set"; do
             if [ -f "$cfgfile" ]; then
               echo "Patching $cfgfile"
@@ -235,7 +235,12 @@ jobs:
             fi
           done
           
-          # Step 3: Build everything
+          # Step 3: Force kernel rebuild with patched config
+          echo "=== Forcing kernel rebuild ==="
+          rm -f "$KSRC/.config.prev" "$KSRC/.config.modules.save" 2>/dev/null || true
+          touch "$KSRC/Makefile" 2>/dev/null || true
+          
+          # Step 4: Build everything
           echo "=== Building ==="
           make -j"$(nproc)" || make -j1 V=s
 
