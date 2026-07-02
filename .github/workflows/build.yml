@@ -215,12 +215,16 @@ jobs:
       - name: Build Firmware
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Step 1: Run make to unpack kernel source and generate configs
-          # This will fail or succeed — we just need kernel source unpacked
-          timeout 300 make -j"$(nproc)" 2>&1 | tail -10 || true
+          # Step 1: Prepare kernel source (unpack + patch + config)
+          echo "=== Preparing kernel source ==="
+          make target/linux/prepare -j1 V=s 2>&1 | tail -20 || true
           
           # Step 2: Patch kernel Kconfig files NOW — kernel source is unpacked
           KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
+          echo "=== Checking kernel source ==="
+          ls -la "$KSRC/drivers/net/Kconfig" 2>/dev/null || echo "Kconfig not found, listing dir..."
+          ls "$KSRC/" 2>/dev/null | head -10 || echo "KSRC does not exist"
+          
           echo "=== Patching TUN Kconfig ==="
           TUN_KC="$KSRC/drivers/net/Kconfig"
           if [ -f "$TUN_KC" ]; then
@@ -228,7 +232,7 @@ jobs:
             grep -A5 "^config TUN$" "$TUN_KC" | head -6
           else
             echo "TUN Kconfig not found — searching..."
-            find "$KSRC" -name Kconfig | xargs grep -l "config TUN" 2>/dev/null | head -5
+            find "$KSRC" -name Kconfig 2>/dev/null | xargs grep -l "config TUN" 2>/dev/null | head -5
           fi
           
           echo "=== Patching WireGuard Kconfig ==="
@@ -238,7 +242,7 @@ jobs:
             grep -A5 "^config WIREGUARD$" "$WG_KC" | head -6
           else
             echo "WG Kconfig not found — searching..."
-            find "$KSRC" -name Kconfig | xargs grep -l "config WIREGUARD" 2>/dev/null | head -5
+            find "$KSRC" -name Kconfig 2>/dev/null | xargs grep -l "config WIREGUARD" 2>/dev/null | head -5
           fi
           
           # Step 3: Patch .config files directly too
@@ -251,8 +255,8 @@ jobs:
             fi
           done
           
-          # Step 4: Rebuild with patched Kconfig + .config
-          echo "=== Rebuilding ==="
+          # Step 4: Build everything
+          echo "=== Building ==="
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Verify Official SD Card Image
