@@ -219,43 +219,23 @@ jobs:
           echo "=== Preparing kernel source ==="
           make target/linux/prepare -j1 V=s 2>&1 | tail -20 || true
           
-          # Step 2: Patch kernel Kconfig files NOW — kernel source is unpacked
+          # Step 2: Patch .config files directly — this is the reliable way
           KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
           echo "=== Checking kernel source ==="
-          ls -la "$KSRC/drivers/net/Kconfig" 2>/dev/null || echo "Kconfig not found, listing dir..."
-          ls "$KSRC/" 2>/dev/null | head -10 || echo "KSRC does not exist"
+          ls "$KSRC/.config" 2>/dev/null && echo "KSRC exists" || echo "KSRC does not exist"
           
-          echo "=== Patching TUN Kconfig ==="
-          TUN_KC="$KSRC/drivers/net/Kconfig"
-          if [ -f "$TUN_KC" ]; then
-            sed -i '/^config TUN$/{n;/tristate/{s/tristate/tristate\n\tdefault y/}}' "$TUN_KC"
-            grep -A5 "^config TUN$" "$TUN_KC" | head -6
-          else
-            echo "TUN Kconfig not found — searching..."
-            find "$KSRC" -name Kconfig 2>/dev/null | xargs grep -l "config TUN" 2>/dev/null | head -5
-          fi
-          
-          echo "=== Patching WireGuard Kconfig ==="
-          WG_KC="$KSRC/net/wireguard/Kconfig"
-          if [ -f "$WG_KC" ]; then
-            sed -i '/^config WIREGUARD$/{n;/tristate/{s/tristate/tristate\n\tdefault y/}}' "$WG_KC"
-            grep -A5 "^config WIREGUARD$" "$WG_KC" | head -6
-          else
-            echo "WG Kconfig not found — searching..."
-            find "$KSRC" -name Kconfig 2>/dev/null | xargs grep -l "config WIREGUARD" 2>/dev/null | head -5
-          fi
-          
-          # Step 3: Patch .config files directly too
+          # Patch all .config files
           for cfgfile in "$KSRC/.config" "$KSRC/.config.target" "$KSRC/.config.set"; do
             if [ -f "$cfgfile" ]; then
               echo "Patching $cfgfile"
               sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=y/g' "$cfgfile"
+              sed -i 's/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/g' "$cfgfile"
               sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/g' "$cfgfile"
               grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$cfgfile" || true
             fi
           done
           
-          # Step 4: Build everything
+          # Step 3: Build everything
           echo "=== Building ==="
           make -j"$(nproc)" || make -j1 V=s
 
