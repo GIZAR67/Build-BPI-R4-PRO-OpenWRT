@@ -215,15 +215,37 @@ jobs:
       - name: Build Firmware
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Step 1: Build toolchain ONLY (no kernel, no packages)
+          # Step 1: Build toolchain ONLY
           echo "=== Building toolchain ==="
           make toolchain/install -j"$(nproc)" V=s 2>&1 | tail -10 || true
           
-          # Step 2: Build kernel (this will unpack source, run syncconfig, compile)
+          # Step 2: Build kernel (unpacks source, runs syncconfig, compiles)
           echo "=== Building kernel ==="
           make target/linux/compile -j"$(nproc)" V=s 2>&1 | tail -20 || true
           
-          # Step 3: NOW patch .config — kernel is compiled, .config exists
+          # Step 3: Re-wrap kconfig.pl (make may have restored it from git)
+          echo "=== Re-wrapping kconfig.pl ==="
+          KCONFIG_PL="scripts/kconfig.pl"
+          if grep -q "Wrapper" "$KCONFIG_PL" 2>/dev/null; then
+            echo "Wrapper already in place"
+          else
+            cp "$KCONFIG_PL" scripts/kconfig.pl.real
+            printf '#!/usr/bin/perl\n' > "$KCONFIG_PL"
+            printf '# Wrapper: filter TUN/WG\n' >> "$KCONFIG_PL"
+            printf 'open(my $pipe, "-|", "/usr/bin/perl", $0 . ".real", @ARGV) or die "Cannot run: $!";\n' >> "$KCONFIG_PL"
+            printf 'while (my $line = <$pipe>) {\n' >> "$KCONFIG_PL"
+            printf '    $line =~ s/# CONFIG_TUN is not set/CONFIG_TUN=y/;\n' >> "$KCONFIG_PL"
+            printf '    $line =~ s/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/;\n' >> "$KCONFIG_PL"
+            printf '    $line =~ s/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=y/;\n' >> "$KCONFIG_PL"
+            printf '    print $line;\n' >> "$KCONFIG_PL"
+            printf '}\n' >> "$KCONFIG_PL"
+            printf 'close($pipe);\n' >> "$KCONFIG_PL"
+            printf 'exit($? >> 8);\n' >> "$KCONFIG_PL"
+            chmod +x "$KCONFIG_PL"
+            echo "Wrapper installed"
+          fi
+          
+          # Step 4: Patch .config files
           KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
           echo "=== Patching kernel .config ==="
           ls "$KSRC/.config" 2>/dev/null && echo "KSRC exists" || echo "KSRC does not exist"
@@ -238,14 +260,16 @@ jobs:
             fi
           done
           
-          # Step 4: Force kernel rebuild — delete stamps so make rebuilds kernel
+          # Step 5: Force kernel rebuild — delete ALL kernel stamps
           echo "=== Forcing kernel rebuild ==="
           rm -f "$KSRC/.config.prev" "$KSRC/.config.modules.save" 2>/dev/null || true
-          # Remove kernel compile stamp to force rebuild
           rm -f staging_dir/target-aarch64_cortex-a53_musl/stamp/.linux_compile 2>/dev/null || true
           rm -f staging_dir/target-aarch64_cortex-a53_musl/stamp/.linux_install 2>/dev/null || true
+          rm -f staging_dir/target-aarch64_cortex-a53_musl/stamp/.linux_prepare 2>/dev/null || true
+          rm -f build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.config.prev 2>/dev/null || true
+          rm -f build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.prepared 2>/dev/null || true
           
-          # Step 5: Build everything
+          # Step 6: Build everything — kconfig.pl wrapper will filter output
           echo "=== Building everything ==="
           make -j"$(nproc)" || make -j1 V=s
 
