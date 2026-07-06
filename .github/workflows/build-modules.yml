@@ -1,0 +1,105 @@
+name: Build tun.ko and wireguard.ko modules
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_REPO: https://github.com/BPI-SINOVOIP/BPI-R4PRO-8X-OPENWRT-V24.10.0-Master-Devel.git
+  SOURCE_BRANCH: main
+  OPENWRT_DIR: openwrt
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 720
+
+    steps:
+      - name: Checkout Build Repo
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af || true
+          df -h
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib \
+            g++-multilib genisoimage git gperf haveged help2man intltool libc6-dev-i386 \
+            libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev \
+            libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch \
+            pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons \
+            squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto \
+            xxd zlib1g-dev zstd
+
+      - name: Clone Source Tree
+        run: |
+          git clone --depth 1 --branch "${SOURCE_BRANCH}" "${SOURCE_REPO}" "${OPENWRT_DIR}"
+
+      - name: Update And Install Feeds
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          ./scripts/feeds update -a
+          sed -i 's/PKG_MIRROR_HASH:=1138649f64ac3982330925c38c795ca6860289adbd95755991f80afa30ebdea7/PKG_MIRROR_HASH:=93fa1a61e810ed7753801f007e3ee3fa425f93ba65e19dbb64aaa78d061b239b/' package/boot/arm-trusted-firmware-mediatek/Makefile
+          ./scripts/feeds install -a
+
+      - name: Configure and Enable TUN/WireGuard
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Create minimal config — just target + TUN + WG modules
+          cat > .config << 'EOF'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_bananapi_bpi-r4-pro-8x=y
+          CONFIG_PACKAGE_kmod-tun=y
+          CONFIG_PACKAGE_kmod-wireguard=y
+          EOF
+          make defconfig
+          grep -E "CONFIG_TUN|CONFIG_WIREGUARD|kmod-tun|kmod-wireguard" .config
+
+      - name: Build Toolchain
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          make toolchain/install -j$(nproc) V=s 2>&1 | tail -10
+
+      - name: Build Kernel Modules
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Build just the kernel modules — no full firmware
+          make package/kernel/linux/compile -j$(nproc) V=s 2>&1 | tail -30
+
+      - name: Find and Collect Modules
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          echo "=== Finding tun.ko ==="
+          find build_dir/ -name "tun.ko" -exec ls -la {} \;
+          echo "=== Finding wireguard.ko ==="
+          find build_dir/ -name "wireguard.ko" -exec ls -la {} \; 2>/dev/null || echo "wireguard.ko not found"
+          
+          mkdir -p /tmp/modules
+          find build_dir/ -name "tun.ko" -exec cp {} /tmp/modules/ \;
+          find build_dir/ -name "wireguard.ko" -exec cp {} /tmp/modules/ \; 2>/dev/null || true
+          
+          echo "=== Checking vermagic ==="
+          strings /tmp/modules/tun.ko | grep vermagic || echo "no vermagic found"
+          
+          ls -la /tmp/modules/
+
+      - name: Upload Modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-modules-tun-wireguard
+          path: /tmp/modules/*
+          if-no-files-found: error
+          retention-days: 30
