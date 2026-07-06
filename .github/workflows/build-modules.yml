@@ -73,15 +73,12 @@ jobs:
         run: |
           make toolchain/install -j$(nproc) V=s 2>&1 | tail -10
 
-      - name: Build Kernel Modules
+      - name: Build Kernel and Modules
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Build just the kernel modules — no full firmware
-          make package/kernel/linux/compile -j$(nproc) V=s 2>&1 | tail -30
-
-      - name: Find and Collect Modules
-        working-directory: ${{ env.OPENWRT_DIR }}
-        run: |
+          # Build kernel + all kernel modules (this includes tun.ko and wireguard.ko)
+          make target/linux/compile -j$(nproc) V=s 2>&1 | tail -30
+          
           echo "=== Finding tun.ko ==="
           find build_dir/ -name "tun.ko" -exec ls -la {} \;
           echo "=== Finding wireguard.ko ==="
