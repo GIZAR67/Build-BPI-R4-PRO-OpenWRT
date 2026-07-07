@@ -76,9 +76,35 @@ jobs:
       - name: Build Kernel and Modules
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Build kernel + all kernel modules (this includes tun.ko and wireguard.ko)
+          # Step 1: Build toolchain + kernel (this unpacks source and compiles)
           make target/linux/compile -j$(nproc) V=s 2>&1 | tail -30
           
+          # Step 2: Patch kernel .config to enable TUN and WireGuard as modules
+          KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
+          echo "=== Patching kernel .config ==="
+          ls "$KSRC/.config" 2>/dev/null && echo "KSRC exists" || echo "KSRC does not exist"
+          
+          for cfgfile in "$KSRC/.config" "$KSRC/.config.target" "$KSRC/.config.set"; do
+            if [ -f "$cfgfile" ]; then
+              echo "Patching $cfgfile"
+              sed -i 's/# CONFIG_TUN is not set/CONFIG_TUN=m/g' "$cfgfile"
+              sed -i 's/# CONFIG_TUN_VNET_CROSS_LE is not set/CONFIG_TUN_VNET_CROSS_LE=y/g' "$cfgfile"
+              sed -i 's/# CONFIG_WIREGUARD is not set/CONFIG_WIREGUARD=m/g' "$cfgfile"
+              grep -E 'CONFIG_TUN|CONFIG_WIREGUARD' "$cfgfile" || true
+            fi
+          done
+          
+          # Step 3: Force kernel module rebuild
+          echo "=== Forcing kernel rebuild ==="
+          rm -f staging_dir/target-aarch64_cortex-a53_musl/stamp/.linux_compile 2>/dev/null || true
+          rm -f staging_dir/target-aarch64_cortex-a53_musl/stamp/.linux_install 2>/dev/null || true
+          rm -f "$KSRC/.config.prev" "$KSRC/.config.modules.save" 2>/dev/null || true
+          
+          # Step 4: Rebuild kernel with TUN/WG modules
+          echo "=== Rebuilding kernel with TUN/WG ==="
+          make target/linux/compile -j$(nproc) V=s 2>&1 | tail -30
+          
+          # Step 5: Find and collect modules
           echo "=== Finding tun.ko ==="
           find build_dir/ -name "tun.ko" -exec ls -la {} \;
           echo "=== Finding wireguard.ko ==="
