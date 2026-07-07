@@ -76,6 +76,12 @@ jobs:
       - name: Build Kernel and Modules
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
+          set -eo pipefail
+          
+          # Step 0: Download sources (firmware, kernel, etc.)
+          echo "=== Downloading sources ==="
+          make download -j$(nproc) 2>&1 | tail -20
+          
           # Step 1: Build kernel (full log, no tail)
           echo "=== Building kernel (pass 1) ==="
           make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-build.log | tail -50
@@ -103,7 +109,12 @@ jobs:
           
           # Step 4: Rebuild kernel with TUN/WG modules (full log)
           echo "=== Rebuilding kernel with TUN/WG (pass 2) ==="
-          make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-rebuild.log | tail -50
+          set -eo pipefail
+          make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-rebuild.log | tail -50 || {
+            echo "Pass 2 failed — showing errors:"
+            grep -i "error:" /tmp/kernel-rebuild.log | tail -20
+            exit 1
+          }
           
           # Step 5: Find and collect modules
           echo "=== Finding tun.ko ==="
