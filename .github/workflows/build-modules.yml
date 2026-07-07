@@ -76,8 +76,9 @@ jobs:
       - name: Build Kernel and Modules
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Step 1: Build toolchain + kernel (this unpacks source and compiles)
-          make target/linux/compile -j$(nproc) V=s 2>&1 | tail -30
+          # Step 1: Build kernel (full log, no tail)
+          echo "=== Building kernel (pass 1) ==="
+          make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-build.log | tail -50
           
           # Step 2: Patch kernel .config to enable TUN and WireGuard as modules
           KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
@@ -100,9 +101,9 @@ jobs:
           rm -f staging_dir/target-aarch64_cortex-a53_musl/stamp/.linux_install 2>/dev/null || true
           rm -f "$KSRC/.config.prev" "$KSRC/.config.modules.save" 2>/dev/null || true
           
-          # Step 4: Rebuild kernel with TUN/WG modules
-          echo "=== Rebuilding kernel with TUN/WG ==="
-          make target/linux/compile -j$(nproc) V=s 2>&1 | tail -30
+          # Step 4: Rebuild kernel with TUN/WG modules (full log)
+          echo "=== Rebuilding kernel with TUN/WG (pass 2) ==="
+          make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-rebuild.log | tail -50
           
           # Step 5: Find and collect modules
           echo "=== Finding tun.ko ==="
@@ -115,9 +116,15 @@ jobs:
           find build_dir/ -name "wireguard.ko" -exec cp {} /tmp/modules/ \; 2>/dev/null || true
           
           echo "=== Checking vermagic ==="
-          strings /tmp/modules/tun.ko | grep vermagic || echo "no vermagic found"
+          strings /tmp/modules/tun.ko 2>/dev/null | grep vermagic || echo "no vermagic found"
           
           ls -la /tmp/modules/
+          
+          # Show errors from logs
+          echo "=== Pass 1 errors ==="
+          grep -i "error:" /tmp/kernel-build.log | tail -10 || echo "no errors"
+          echo "=== Pass 2 errors ==="
+          grep -i "error:" /tmp/kernel-rebuild.log | tail -10 || echo "no errors"
 
       - name: Upload Modules
         uses: actions/upload-artifact@v4
