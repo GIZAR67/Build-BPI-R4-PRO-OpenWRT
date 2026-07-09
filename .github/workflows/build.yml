@@ -50,6 +50,16 @@ jobs:
         run: |
           git clone --depth 1 --branch "${SOURCE_BRANCH}" "${SOURCE_REPO}" "${OPENWRT_DIR}"
 
+      - name: Add AmneziaWG Feed
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # amneziawg-tools / luci-proto-amneziawg are requested in .config but
+          # are not provided by any feed in feeds.conf.default — add the
+          # upstream AmneziaWG feed so those packages actually exist to build.
+          grep -q '^src-git amneziawg ' feeds.conf.default || \
+            echo 'src-git amneziawg https://github.com/amnezia-vpn/amneziawg-openwrt.git' >> feeds.conf.default
+          cat feeds.conf.default
+
       - name: Enable TUN and WireGuard in Kernel Config
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
