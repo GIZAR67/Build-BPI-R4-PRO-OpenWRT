@@ -89,7 +89,14 @@ jobs:
           # Step 0: Download sources (firmware, kernel, etc.)
           echo "=== Downloading sources ==="
           make download -j$(nproc) 2>&1 | tail -20
-          
+
+          # Step 0.5: Disable built-in Airoha EthMD32 firmware — package/firmware/linux-firmware
+          # is never built by this workflow (we call target/linux/compile directly), so the
+          # linux-firmware-20241110 dir CONFIG_EXTRA_FIRMWARE_DIR points to never gets created,
+          # and kernel linking fails on "No rule to make target ... EthMD32.dm.bin". Not needed
+          # for tun.ko/wireguard.ko.
+          sed -i '/^CONFIG_EXTRA_FIRMWARE=/d; /^CONFIG_EXTRA_FIRMWARE_DIR=/d' target/linux/mediatek/filogic/config-6.6
+
           # Step 1: Build kernel (full log, no tail)
           echo "=== Building kernel (pass 1) ==="
           make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-build.log | tail -50 || {
