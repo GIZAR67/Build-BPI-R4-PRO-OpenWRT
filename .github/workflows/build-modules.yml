@@ -84,8 +84,12 @@ jobs:
           
           # Step 1: Build kernel (full log, no tail)
           echo "=== Building kernel (pass 1) ==="
-          make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-build.log | tail -50
-          
+          make target/linux/compile -j$(nproc) V=s 2>&1 | tee /tmp/kernel-build.log | tail -50 || {
+            echo "Pass 1 failed — showing errors:"
+            grep -i "error:" /tmp/kernel-build.log | tail -20
+            exit 1
+          }
+
           # Step 2: Patch kernel .config to enable TUN and WireGuard as modules
           KSRC="build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93"
           echo "=== Patching kernel .config ==="
@@ -136,6 +140,17 @@ jobs:
           grep -i "error:" /tmp/kernel-build.log | tail -10 || echo "no errors"
           echo "=== Pass 2 errors ==="
           grep -i "error:" /tmp/kernel-rebuild.log | tail -10 || echo "no errors"
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-build-logs
+          path: |
+            /tmp/kernel-build.log
+            /tmp/kernel-rebuild.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload Modules
         uses: actions/upload-artifact@v4
