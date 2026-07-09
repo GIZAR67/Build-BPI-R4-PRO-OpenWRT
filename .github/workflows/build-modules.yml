@@ -57,16 +57,24 @@ jobs:
       - name: Configure and Enable TUN/WireGuard
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Create minimal config — just target + TUN + WG modules
+          # Minimal config — ONLY target + TUN + WG, nothing else
+          # This avoids recursive dependency issues from luci-app-fchomo, hostapd, etc.
           cat > .config << 'EOF'
           CONFIG_TARGET_mediatek=y
           CONFIG_TARGET_mediatek_filogic=y
           CONFIG_TARGET_mediatek_filogic_DEVICE_bananapi_bpi-r4-pro-8x=y
           CONFIG_PACKAGE_kmod-tun=y
           CONFIG_PACKAGE_kmod-wireguard=y
+          # Disable everything that causes recursive dependencies
+          # CONFIG_PACKAGE_luci-app-fchomo is not set
+          # CONFIG_PACKAGE_hostapd is not set
+          # CONFIG_PACKAGE_hostapd-basic is not set
           EOF
           make defconfig
+          # Verify
           grep -E "CONFIG_TUN|CONFIG_WIREGUARD|kmod-tun|kmod-wireguard" .config
+          echo "=== Check for recursive deps ==="
+          grep -i "recursive" tmp/.config-package.in 2>/dev/null || echo "No recursive deps"
 
       - name: Build Toolchain
         working-directory: ${{ env.OPENWRT_DIR }}
