@@ -9,19 +9,38 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: 'stable'
+      - name: Install aarch64 cross toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-aarch64-linux-gnu
       - name: Clone amneziawg-go
         run: git clone --depth 1 https://github.com/amnezia-vpn/amneziawg-go.git
-      - name: Cross-compile for aarch64 (static)
+      - name: Cross-compile amneziawg-go for aarch64 (static)
         working-directory: amneziawg-go
         run: |
           go mod download
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o amneziawg-go-arm64 .
-          file amneziawg-go-arm64 || true
-          ./amneziawg-go-arm64 --version 2>/dev/null || true
-          ls -la amneziawg-go-arm64
+          file amneziawg-go-arm64
+      - name: Clone amneziawg-tools
+        run: git clone --depth 1 https://github.com/amnezia-vpn/amneziawg-tools.git
+      - name: Cross-compile awg for aarch64 (static)
+        working-directory: amneziawg-tools/src
+        run: |
+          make CC=aarch64-linux-gnu-gcc LDFLAGS="-static" -j2
+          file wg
+          cp wg awg-arm64
+      - name: Check 2.0 param support in awg source
+        working-directory: amneziawg-tools/src
+        run: |
+          grep -rniE '"i1"|advanced_security|special_junk|s3|s4' config.c uapi* 2>/dev/null | head -20 || true
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          cp amneziawg-go/amneziawg-go-arm64 out/
+          cp amneziawg-tools/src/awg-arm64 out/
+          cp amneziawg-tools/src/wg-quick/linux.bash out/awg-quick.bash || true
+          ls -la out/
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: amneziawg-go-aarch64
-          path: amneziawg-go/amneziawg-go-arm64
+          name: amneziawg-aarch64-bundle
+          path: out/
           if-no-files-found: error
