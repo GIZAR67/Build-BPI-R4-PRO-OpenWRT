@@ -50,6 +50,25 @@ jobs:
         run: |
           git clone --depth 1 --branch "${SOURCE_BRANCH}" "${SOURCE_REPO}" "${OPENWRT_DIR}"
 
+      - name: Fix WiFi Overlay Label (i2c_wifi -> imux3_wifi)
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Upstream bug: the wifi overlay references &i2c_wifi, but the base
+          # DTS labels that bus imux3_wifi. The unresolved fixup makes U-Boot's
+          # `fdt apply` fail and the board hangs at boot when the overlay is
+          # enabled via bootconf. Point the overlay at the real label.
+          DTSO="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7988a-bananapi-bpi-r4-pro-8x-wifi-mt7996a.dtso"
+          BASE="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7988a-bananapi-bpi-r4-pro-8x.dts"
+          grep -q 'imux3_wifi' "$BASE" || { echo "ERROR: imux3_wifi label missing in base DTS — upstream changed, re-check"; exit 1; }
+          if grep -q '&i2c_wifi' "$DTSO"; then
+            sed -i 's/&i2c_wifi\b/\&imux3_wifi/' "$DTSO"
+            grep -q '&imux3_wifi' "$DTSO" || { echo "ERROR: patch did not apply"; exit 1; }
+            echo "=== patched overlay reference ==="
+            grep -n 'imux3_wifi' "$DTSO"
+          else
+            echo "NOTE: overlay no longer references &i2c_wifi — upstream fixed it, skipping"
+          fi
+
       - name: Add AmneziaWG Feed
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
@@ -288,6 +307,16 @@ jobs:
         run: |
           ls -lh bin/targets/mediatek/filogic
           test -f bin/targets/mediatek/filogic/openwrt-mediatek-filogic-bananapi_bpi-r4-pro-8x-sdcard.img.gz
+          # The wifi overlay inside the FIT must reference imux3_wifi, not the
+          # nonexistent i2c_wifi label (unresolved fixup = boot hang).
+          for ITB in bin/targets/mediatek/filogic/*bpi-r4-pro-8x*sysupgrade.itb; do
+            ls -lh "$ITB"
+            if strings "$ITB" | grep -qw 'i2c_wifi'; then
+              echo "ERROR: $ITB still contains i2c_wifi fixup"
+              exit 1
+            fi
+            strings "$ITB" | grep -qw 'imux3_wifi' && echo "OK: $ITB overlay fixup points to imux3_wifi"
+          done
 
       - name: Prepare Release Files
         id: meta
