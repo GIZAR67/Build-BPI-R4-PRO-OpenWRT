@@ -124,6 +124,7 @@ jobs:
       - name: Expand Config
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
+          cp .config /tmp/config.requested
           make defconfig
           # Verify mihomo is not enabled
           if grep -q 'CONFIG_PACKAGE_mihomo=y' .config; then
@@ -131,6 +132,23 @@ jobs:
             exit 1
           fi
           grep -E "CONFIG_TARGET_|CONFIG_TARGET_ROOTFS_(INITRAMFS|INITRAMFS_SEPARATE|SQUASHFS)" .config
+
+          # make defconfig SILENTLY drops CONFIG_PACKAGE_* symbols that no feed
+          # provides. Without this check a missing zapret or kmod-* would only
+          # surface an hour later, as an absence in the finished image. Fail now.
+          echo "=== Verify every requested package survived defconfig ==="
+          MISSING=""
+          while read -r sym; do
+            grep -q "^${sym}=y\$" .config || MISSING="${MISSING} ${sym}"
+          done < <(sed -n 's/^\(CONFIG_PACKAGE_[A-Za-z0-9_.+-]*\)=y$/\1/p' /tmp/config.requested)
+          if [ -n "${MISSING}" ]; then
+            echo "ERROR: packages dropped by defconfig (absent from feeds or unmet deps):"
+            for m in ${MISSING}; do echo "  - ${m}"; done
+            echo "--- installed feeds ---"
+            ls -1 package/feeds/ 2>/dev/null || true
+            exit 1
+          fi
+          echo "OK: all requested packages present"
 
       - name: Force TUN and WireGuard in Kernel Config
         working-directory: ${{ env.OPENWRT_DIR }}

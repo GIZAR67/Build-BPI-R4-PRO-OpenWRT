@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# zapret (remittor) provides zapret + luci-app-zapret. Default branch is zap1.
+# The feed must be in feeds.conf.default BEFORE feeds update, or the packages never appear.
+grep -q '^src-git zapret ' feeds.conf.default || \
+    echo 'src-git zapret https://github.com/remittor/zapret-openwrt.git;zap1' >> feeds.conf.default
+cat feeds.conf.default
+
 ./scripts/feeds update -a
 
 # mtk-openwrt arm-trusted-firmware mirror hash has drifted; accept the currently published archive hash.
 sed -i 's/PKG_MIRROR_HASH:=1138649f64ac3982330925c38c795ca6860289adbd95755991f80afa30ebdea7/PKG_MIRROR_HASH:=93fa1a61e810ed7753801f007e3ee3fa425f93ba65e19dbb64aaa78d061b239b/' package/boot/arm-trusted-firmware-mediatek/Makefile
 
 # Install all feeds EXCEPT 'small' (mihomo fails to build)
-for feed in base luci routing telephony mtk_openwrt_feed kenzo amneziawg; do
+for feed in base luci routing telephony mtk_openwrt_feed kenzo amneziawg zapret; do
     ./scripts/feeds install -p "$feed" -a
 done
