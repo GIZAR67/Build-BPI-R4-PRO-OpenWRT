@@ -150,6 +150,16 @@ jobs:
           fi
           echo "OK: all requested packages present"
 
+          # LUCI_LANG_ru only *enables* the hidden luci-i18n-*-ru packages; confirm
+          # the expansion actually produced them, otherwise the UI ships English.
+          if grep -q '^CONFIG_LUCI_LANG_ru=y$' /tmp/config.requested; then
+            if ! grep -q '^CONFIG_PACKAGE_luci-i18n-base-ru=y$' .config; then
+              echo "ERROR: CONFIG_LUCI_LANG_ru=y did not pull in luci-i18n-base-ru"
+              exit 1
+            fi
+            echo "OK: Russian LuCI translations enabled ($(grep -c '^CONFIG_PACKAGE_luci-i18n-.*-ru=y$' .config) packages)"
+          fi
+
       - name: Force TUN and WireGuard in Kernel Config
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
