@@ -150,18 +150,38 @@ jobs:
           find dl -size -1024c -delete
           make download -j"$(nproc)" || make download -j1 V=s
 
+      - name: Apply Custom Files Overlay
+        run: |
+          # Всё из files/ попадает в корень образа как есть (штатный механизм OpenWrt).
+          [ -d files ] || { echo "files/ нет — пропускаю"; exit 0; }
+          mkdir -p "${OPENWRT_DIR}/files"
+          cp -a files/. "${OPENWRT_DIR}/files/"
+          # Право на исполнение git хранит, но копия через архив его теряла — ставим явно.
+          find "${OPENWRT_DIR}/files/usr/bin" "${OPENWRT_DIR}/files/etc/uci-defaults" \
+            -type f -exec chmod 0755 {} + 2>/dev/null || true
+          find "${OPENWRT_DIR}/files" -type f | sed "s|^|overlay: |"
+
       - name: Build Firmware
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          # Step 1: Build toolchain ONLY
-          echo "=== Building toolchain ==="
-          make toolchain/install -j"$(nproc)" V=s BUILD_LOG=1 2>&1 | tail -10 || true
+          # The stages below are `world` spelled out by hand, in its own order:
+          #   prepare -> target/compile -> package/compile -> package/install
+          #           -> target/install -> package/index + json + checksum
+          # (see the `world:` rule in the top-level Makefile). Spelling it out is what
+          # lets the image assembly run at -j1 while everything else stays parallel —
+          # but it also means NOTHING pulls a missing stage in for us: `package/install`
+          # does not depend on `package/compile`, only `world` puts them in order.
+          # Skipping package/compile cost run 31935559562 an hour (host opkg missing).
+
+          # Step 1: prepare == host tools + toolchain (+ buildinfo)
+          echo "=== Building tools and toolchain ==="
+          make prepare -j"$(nproc)" V=s BUILD_LOG=1 2>&1 | tail -10 || true
 
           # Step 2: Build kernel (unpacks source, runs syncconfig, compiles)
           # Console output is tailed to 20 lines; BUILD_LOG=1 keeps the full text
           # in logs/ so a kernel-stage failure is still readable after the fact.
           echo "=== Building kernel ==="
-          make target/linux/compile -j"$(nproc)" V=s BUILD_LOG=1 2>&1 | tail -20 || true
+          make target/compile -j"$(nproc)" V=s BUILD_LOG=1 2>&1 | tail -20 || true
           
           # BUILD_LOG=1 tees every sub-make into logs/<subdir>/<target>.txt. Without it
           # the parallel make swallows the failing command's output and leaves only a
@@ -181,11 +201,21 @@ jobs:
             [ -d logs ] && mv logs logs-parallel-failure || echo "(no logs/ dir produced)"
           }
 
-          # Step 3: Build and install all packages — parallel, this part scales fine.
+          # Step 3: Compile the packages — parallel, this part scales fine.
+          # Also where the host opkg comes from: package/Makefile hangs
+          # `package/system/opkg/host/compile` off this target and off nothing else.
           echo "=== Building packages (parallel) ==="
+          if ! make -j"$(nproc)" package/compile BUILD_LOG=1; then
+            dump_logs
+            echo "=== retrying package build serially ==="
+            make -j1 V=s package/compile
+          fi
+
+          # Step 3b: Install the built packages into the rootfs tree.
+          echo "=== Installing packages into the rootfs ==="
           if ! make -j"$(nproc)" package/install BUILD_LOG=1; then
             dump_logs
-            echo "=== retrying packages serially ==="
+            echo "=== retrying package install serially ==="
             make -j1 V=s package/install
           fi
 
@@ -203,13 +233,14 @@ jobs:
             exit 1
           fi
 
-          # Step 5: Finish world — package index, checksums, buildinfo, profiles.json.
-          # Both heavy stages above are stamped by now, so this does not redo them.
+          # Step 5: Finish world — exactly what the `world:` recipe runs after
+          # target/install. Spelled out rather than a bare `make`, so a stale or
+          # missing stamp can never drag the image assembly back into a parallel run.
           echo "=== Finishing world (indexes, checksums, buildinfo) ==="
-          if ! make -j"$(nproc)" BUILD_LOG=1; then
+          if ! make -j"$(nproc)" package/index json_overview_image_info checksum BUILD_LOG=1; then
             dump_logs
             echo "=== retrying serially ==="
-            make -j1 V=s
+            make -j1 V=s package/index json_overview_image_info checksum
           fi
 
       # Runs even when the build dies, so a failed run still yields something to read.
