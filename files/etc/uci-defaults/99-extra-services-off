@@ -1,0 +1,21 @@
+#!/bin/sh
+# Состав образа расширен до полного набора заводской прошивки и сборки Octava.
+# Пакеты в образе лежат, но сами по себе подниматься не должны:
+#
+#  - podkop и sing-box перехватывают DNS целиком и заменяют собой нашу схему
+#    раздельного доступа (fw4 + 99-custom.nft, метки 0x56/0x57) — вместе они
+#    не работают, отладка превращается в гадание;
+#  - ssr-plus, xray, shadowsocks, mosdns — то же самое, только про прокси;
+#  - samba, ksmbd, p910nd, avahi, wsdd2, openvpn — лишние слушающие порты
+#    на роутере, который стоит на границе сети.
+#
+# Всё это включается по необходимости одной командой, например:
+#   /etc/init.d/samba4 enable && /etc/init.d/samba4 start
+
+for svc in podkop sing-box shadowsocksr xray v2ray mosdns openvpn \
+           samba4 ksmbd p910nd avahi-daemon wsdd2 dbus xl2tpd; do
+    [ -x "/etc/init.d/$svc" ] || continue
+    "/etc/init.d/$svc" disable >/dev/null 2>&1
+    "/etc/init.d/$svc" stop    >/dev/null 2>&1
+done
+exit 0

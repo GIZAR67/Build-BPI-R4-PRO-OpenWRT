@@ -12,7 +12,18 @@ cat feeds.conf.default
 # mtk-openwrt arm-trusted-firmware mirror hash has drifted; accept the currently published archive hash.
 sed -i 's/PKG_MIRROR_HASH:=1138649f64ac3982330925c38c795ca6860289adbd95755991f80afa30ebdea7/PKG_MIRROR_HASH:=93fa1a61e810ed7753801f007e3ee3fa425f93ba65e19dbb64aaa78d061b239b/' package/boot/arm-trusted-firmware-mediatek/Makefile
 
-# Install all feeds EXCEPT 'small' (mihomo fails to build)
-for feed in base luci routing telephony mtk_openwrt_feed kenzo amneziawg zapret; do
+# Feeds are installed in order and the FIRST one to claim a name wins, so the
+# official 'packages' feed goes before kenzo — otherwise a third-party copy of a
+# common package (curl, dnsmasq, samba) would shadow the upstream one.
+#
+# 'packages' used to be left out: everything we needed came in as a dependency of
+# something else. With the full composition (samba4, ksmbd, p910nd, omcproxy,
+# openvpn, xl2tpd, usbutils…) that no longer holds — a package nobody depends on
+# is simply never symlinked, and defconfig drops it without a word.
+#
+# 'small' (kenzok8) carries the proxy stack of the Octava build: xray-core,
+# sing-box, shadowsocks-rust, dns2socks, ipt2socks, mosdns. Its mihomo package
+# fails to build (Go dns library) and is deleted in the next workflow step.
+for feed in base packages luci routing telephony mtk_openwrt_feed kenzo amneziawg zapret small; do
     ./scripts/feeds install -p "$feed" -a
 done

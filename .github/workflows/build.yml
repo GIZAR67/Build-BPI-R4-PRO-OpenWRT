@@ -283,7 +283,9 @@ jobs:
           # (так и вышло на домашней Банане 16.08.2026). dnsmasq-full — поддержка
           # nftset, на ней держится раздельный доступ; базовый dnsmasq идёт с no-nftset.
           for PKG in kmod-tun kmod-wireguard kmod-amneziawg amneziawg-tools \
-                     luci uhttpd luci-app-firewall dnsmasq-full block-mount qrencode; do
+                     luci uhttpd luci-app-firewall dnsmasq-full block-mount qrencode \
+                     samba4-server ksmbd-server p910nd omcproxy openvpn-openssl \
+                     xray-core sing-box podkop luci-app-ssr-plus usbutils kmod-nvme; do
             if grep -q "^${PKG} " "${MANIFEST}"; then
               echo "  OK: ${PKG} $(grep "^${PKG} " "${MANIFEST}" | awk '{print $2}')"
             else
