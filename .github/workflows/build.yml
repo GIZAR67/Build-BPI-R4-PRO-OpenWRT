@@ -93,7 +93,13 @@ jobs:
           # Also remove from kenzo if present
           rm -rf feeds/kenzo/mihomo feeds/kenzo/luci-app-mihomo
           rm -rf package/feeds/kenzo/mihomo package/feeds/kenzo/luci-app-mihomo
-          echo "Removed mihomo packages"
+          # nikki/clashoo — та же семья clash. Они ломают kconfig рекурсией
+          # (nikki depends on firewall4, clashoo selects firewall4, nikki selects
+          # clashoo), из-за чего разбор зависимостей идёт по неверной ветке.
+          for P in nikki clashoo luci-app-nikki; do
+            rm -rf "feeds/small/$P" "package/feeds/small/$P"
+          done
+          echo "Removed mihomo/nikki/clashoo packages"
 
       - name: Load Build Config
         run: |

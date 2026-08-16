@@ -7,6 +7,11 @@ grep -q '^src-git zapret ' feeds.conf.default || \
     echo 'src-git zapret https://github.com/remittor/zapret-openwrt.git;zap1' >> feeds.conf.default
 cat feeds.conf.default
 
+# podkop (itdoginfo) provides podkop + luci-app-podkop. Ни один из фидов сборки их
+# не содержит, поэтому defconfig молча выбрасывал оба пакета (прогон 31952714106).
+grep -q '^src-git podkop ' feeds.conf.default || \
+    echo 'src-git podkop https://github.com/itdoginfo/podkop.git' >> feeds.conf.default
+
 ./scripts/feeds update -a
 
 # mtk-openwrt arm-trusted-firmware mirror hash has drifted; accept the currently published archive hash.
@@ -24,6 +29,6 @@ sed -i 's/PKG_MIRROR_HASH:=1138649f64ac3982330925c38c795ca6860289adbd95755991f80
 # 'small' (kenzok8) carries the proxy stack of the Octava build: xray-core,
 # sing-box, shadowsocks-rust, dns2socks, ipt2socks, mosdns. Its mihomo package
 # fails to build (Go dns library) and is deleted in the next workflow step.
-for feed in base packages luci routing telephony mtk_openwrt_feed kenzo amneziawg zapret small; do
+for feed in base packages luci routing telephony mtk_openwrt_feed kenzo amneziawg zapret podkop small; do
     ./scripts/feeds install -p "$feed" -a
 done
