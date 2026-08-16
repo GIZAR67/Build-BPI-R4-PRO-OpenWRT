@@ -1,0 +1,10 @@
+#!/bin/sh
+# Ставит сторож туннеля в cron при первом старте прошивки.
+# Сам скрипт молча выходит, если туннель на этой железке не настроен,
+# поэтому строку можно держать в образе безусловно.
+mkdir -p /etc/crontabs
+grep -q 'awgu-watchdog' /etc/crontabs/root 2>/dev/null || \
+    echo '* * * * * /usr/bin/awgu-watchdog.sh' >> /etc/crontabs/root
+/etc/init.d/cron enable >/dev/null 2>&1
+/etc/init.d/cron restart >/dev/null 2>&1
+exit 0
