@@ -1,0 +1,2 @@
+#!/bin/sh
+[ "$INTERFACE" = "awgu" ] && [ "$ACTION" = "ifup" ] && /usr/bin/awgu-routes.sh

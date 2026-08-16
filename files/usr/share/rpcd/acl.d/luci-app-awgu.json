@@ -1,0 +1,16 @@
+{
+    "luci-app-awgu": {
+        "description": "AmneziaWG VPN control",
+        "read": {
+            "file": {
+                "/usr/bin/awgu-ctl status": [ "exec" ]
+            },
+            "ubus": { "file": [ "exec" ] }
+        },
+        "write": {
+            "file": {
+                "/usr/bin/awgu-ctl *": [ "exec" ]
+            }
+        }
+    }
+}

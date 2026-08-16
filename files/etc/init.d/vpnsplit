@@ -1,0 +1,44 @@
+#!/bin/sh /etc/rc.common
+# T-024: применение списка устройств по группам + личный запрет гр.3 + первичная загрузка списков
+START=96
+USE_PROCD=1
+
+# dnsmasq учитывает только ПЕРВУЮ nftset-директиву на домен, поэтому deny.conf
+# подключён в /etc/dnsmasq.conf РАНЬШЕ domains.lst, а для доменов, которые есть
+# и в общем списке заблокированных, пишем комбинированную директиву в оба набора.
+gen_deny() {
+	local tmp=/tmp/vpnsplit-deny.$$ out=/etc/vpnsplit/deny.conf
+	> "$tmp"
+	add_dom() {
+		if grep -q "^nftset=/$1/" /etc/vpnsplit/domains.lst 2>/dev/null; then
+			echo "nftset=/$1/4#inet#fw4#vpn_domains,4#inet#fw4#deny_domains" >> "$tmp"
+		else
+			echo "nftset=/$1/4#inet#fw4#deny_domains" >> "$tmp"
+		fi
+	}
+	config_load vpnsplit 2>/dev/null
+	config_list_foreach global deny_domain add_dom 2>/dev/null
+	if ! cmp -s "$tmp" "$out"; then
+		mv "$tmp" "$out"
+		nft flush set inet fw4 deny_domains 2>/dev/null
+		/etc/init.d/dnsmasq restart
+	else
+		rm -f "$tmp"
+	fi
+}
+
+start_service() {
+	/usr/bin/vpnsplit-users.sh
+	gen_deny
+	[ -s /etc/vpnsplit/domains.lst ] || { (sleep 45; /usr/bin/vpnsplit-update.sh) & }
+	[ -s /etc/vpnsplit/ru.cidr ] || { (sleep 60; /usr/bin/vpnsplit-update.sh) & }
+}
+
+reload_service() {
+	/usr/bin/vpnsplit-users.sh
+	gen_deny
+}
+
+service_triggers() {
+	procd_add_reload_trigger "vpnsplit"
+}

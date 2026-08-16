@@ -1,0 +1,21 @@
+#!/bin/sh /etc/rc.common
+START=99
+STOP=10
+IFACE=awgu
+CONF=/etc/amneziawg/awgu.conf
+
+start() {
+    [ -S /var/run/amneziawg/${IFACE}.sock ] || /usr/bin/amneziawg-go ${IFACE}
+    sleep 1
+    /usr/bin/awg-amn setconf ${IFACE} ${CONF}
+    /usr/bin/awgu-routes.sh
+    echo "amneziawg-go ${IFACE} up (full-tunnel)"
+}
+
+stop() {
+    ip route del 0.0.0.0/1 dev ${IFACE} 2>/dev/null
+    ip route del 128.0.0.0/1 dev ${IFACE} 2>/dev/null
+    ip link del ${IFACE} 2>/dev/null
+    pkill -f "amneziawg-go ${IFACE}" 2>/dev/null
+    echo "amneziawg-go ${IFACE} down"
+}

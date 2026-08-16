@@ -1,0 +1,9 @@
+#!/bin/sh
+# T-042: самолечение туннеля управления — если хендшейка нет дольше 3 минут, перезапускаем интерфейс
+[ "$(uci -q get network.wgmgmt.disabled)" = "1" ] && exit 0
+LAST=$(awg show wgmgmt latest-handshakes 2>/dev/null | awk "{print \$2}")
+NOW=$(date +%s)
+if [ -z "$LAST" ] || [ "$LAST" = "0" ] || [ $((NOW-LAST)) -gt 180 ]; then
+    logger -t wgmgmt-watchdog "хендшейк старше 180с — перезапуск wgmgmt"
+    ifdown wgmgmt; sleep 2; ifup wgmgmt
+fi

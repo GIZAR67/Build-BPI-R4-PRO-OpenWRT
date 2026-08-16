@@ -158,6 +158,7 @@ jobs:
           cp -a files/. "${OPENWRT_DIR}/files/"
           # Право на исполнение git хранит, но копия через архив его теряла — ставим явно.
           find "${OPENWRT_DIR}/files/usr/bin" "${OPENWRT_DIR}/files/etc/uci-defaults" \
+            "${OPENWRT_DIR}/files/etc/init.d" "${OPENWRT_DIR}/files/etc/hotplug.d" \
             -type f -exec chmod 0755 {} + 2>/dev/null || true
           find "${OPENWRT_DIR}/files" -type f | sed "s|^|overlay: |"
 
@@ -278,7 +279,11 @@ jobs:
           echo "=== Verify tunnel modules are in the image manifest ==="
           MANIFEST="$(ls bin/targets/mediatek/filogic/*.manifest | head -1)"
           echo "manifest: ${MANIFEST}"
-          for PKG in kmod-tun kmod-wireguard kmod-amneziawg amneziawg-tools; do
+          # luci/uhttpd — веб-интерфейс: без него роутер настраивается только по SSH
+          # (так и вышло на домашней Банане 16.08.2026). dnsmasq-full — поддержка
+          # nftset, на ней держится раздельный доступ; базовый dnsmasq идёт с no-nftset.
+          for PKG in kmod-tun kmod-wireguard kmod-amneziawg amneziawg-tools \
+                     luci uhttpd luci-app-firewall dnsmasq-full block-mount qrencode; do
             if grep -q "^${PKG} " "${MANIFEST}"; then
               echo "  OK: ${PKG} $(grep "^${PKG} " "${MANIFEST}" | awk '{print $2}')"
             else

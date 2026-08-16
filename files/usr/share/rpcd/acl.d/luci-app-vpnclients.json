@@ -1,0 +1,11 @@
+{
+    "luci-app-vpnclients": {
+        "description": "VPN client profiles (QR / text)",
+        "read": {
+            "file": {
+                "/usr/bin/vpnclients *": [ "exec" ]
+            },
+            "ubus": { "file": [ "exec" ] }
+        }
+    }
+}

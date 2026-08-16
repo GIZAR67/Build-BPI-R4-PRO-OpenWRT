@@ -1,0 +1,24 @@
+#!/bin/sh
+# Ставит сторожа и обслуживающие задания в cron при первом старте прошивки.
+# Набор повторяет рабочий роутер. Каждый скрипт сам проверяет, настроено ли то,
+# чем он занимается, и молча выходит — поэтому строки можно держать в образе
+# безусловно, даже на роутере без VPN.
+#
+# awgu-watchdog ставится отдельным файлом 99-awgu-watchdog (исторически).
+
+mkdir -p /etc/crontabs
+
+add_job() {
+    # $1 — расписание, $2 — команда
+    grep -qF "$2" /etc/crontabs/root 2>/dev/null || echo "$1 $2" >> /etc/crontabs/root
+}
+
+add_job '*/2 * * * *' '/usr/bin/wifi-watchdog.sh'
+add_job '* * * * *'   '/usr/bin/wgmgmt-watchdog'
+add_job '*/10 * * * *' '/usr/bin/vpnbg-refill.sh'
+add_job '* * * * *'   '/usr/bin/iptv-failover.sh >/dev/null 2>&1'
+add_job '40 4 * * *'  '/usr/bin/vpnsplit-update.sh'
+
+/etc/init.d/cron enable >/dev/null 2>&1
+/etc/init.d/cron restart >/dev/null 2>&1
+exit 0

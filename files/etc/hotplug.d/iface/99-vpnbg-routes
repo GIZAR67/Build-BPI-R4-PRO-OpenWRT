@@ -1,0 +1,11 @@
+# T-004.14: маршрут «болгарского» канала (метка 0x57 -> таблица 102) восстанавливается
+# при каждом подъёме туннеля управления wgmgmt — иначе после его перезапуска трафик
+# упирается в blackhole.
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$INTERFACE" = "wgmgmt" ] || exit 0
+ip route replace default dev wgmgmt table 102
+ip route replace blackhole default metric 10 table 102
+ip rule show | grep -q "fwmark 0x57" || ip rule add fwmark 0x57 lookup 102 pref 89
+/usr/bin/vpnbg-refill.sh
+/usr/bin/iptv-failover.sh
+logger -t vpnbg "маршрут болгарского канала восстановлен"

@@ -1,0 +1,7 @@
+{
+    "luci-app-vpnsplit": {
+        "description": "Управление доступом к заблокированным сайтам",
+        "read": { "uci": [ "vpnsplit" ] },
+        "write": { "uci": [ "vpnsplit" ] }
+    }
+}

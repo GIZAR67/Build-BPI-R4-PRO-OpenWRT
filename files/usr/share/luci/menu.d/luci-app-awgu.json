@@ -1,0 +1,8 @@
+{
+    "admin/services/awgu": {
+        "title": "VPN (AmneziaWG)",
+        "order": 5,
+        "action": { "type": "view", "path": "awgu" },
+        "depends": { "acl": [ "luci-app-awgu" ] }
+    }
+}

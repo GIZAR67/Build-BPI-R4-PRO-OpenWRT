@@ -1,0 +1,8 @@
+{
+    "admin/services/vpnsplit": {
+        "title": "Доступ к заблокированным",
+        "order": 6,
+        "action": { "type": "view", "path": "vpnsplit" },
+        "depends": { "acl": [ "luci-app-vpnsplit" ] }
+    }
+}

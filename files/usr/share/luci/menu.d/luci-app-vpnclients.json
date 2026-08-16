@@ -1,0 +1,8 @@
+{
+    "admin/services/vpnclients": {
+        "title": "Профили VPN",
+        "order": 5,
+        "action": { "type": "view", "path": "vpnclients" },
+        "depends": { "acl": [ "luci-app-vpnclients" ] }
+    }
+}
