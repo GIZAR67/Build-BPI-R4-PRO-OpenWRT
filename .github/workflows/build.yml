@@ -327,8 +327,40 @@ jobs:
           rm -f build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.93/.prepared 2>/dev/null || true
           
           # Step 6: Build everything — kconfig.pl wrapper will filter output
+          #
+          # BUILD_LOG=1 tees every sub-make into logs/<subdir>/<target>.txt. Without it
+          # the parallel make swallows the failing command's output and leaves only a
+          # bare "ERROR: target/linux failed to build.", which says nothing about why.
           echo "=== Building everything ==="
-          make -j"$(nproc)" || make -j1 V=s
+          if make -j"$(nproc)" BUILD_LOG=1; then
+            echo "=== parallel build succeeded ==="
+          else
+            echo "=== parallel build FAILED — dumping the logs it left behind ==="
+            # Newest logs first: the failing target is almost always among them.
+            find logs -name '*.txt' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -5 |
+              while read -r _ LOGFILE; do
+                echo "----------------- tail of $LOGFILE -----------------"
+                tail -80 "$LOGFILE"
+              done
+            # Keep them: the -j1 retry below would otherwise overwrite the evidence.
+            # Never let the bookkeeping abort the step — the retry matters more.
+            rm -rf logs-parallel-failure || true
+            [ -d logs ] && mv logs logs-parallel-failure || echo "(no logs/ dir produced)"
+            echo "=== retrying serially ==="
+            make -j1 V=s
+          fi
+
+      # Runs even when the build dies, so a failed run still yields something to read.
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_id }}
+          path: |
+            ${{ env.OPENWRT_DIR }}/logs
+            ${{ env.OPENWRT_DIR }}/logs-parallel-failure
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Verify Official SD Card Image
         working-directory: ${{ env.OPENWRT_DIR }}
