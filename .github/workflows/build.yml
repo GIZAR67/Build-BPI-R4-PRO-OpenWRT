@@ -163,26 +163,51 @@ jobs:
           echo "=== Building kernel ==="
           make target/linux/compile -j"$(nproc)" V=s BUILD_LOG=1 2>&1 | tail -20 || true
           
-          # Step 3: Build everything.
-          #
           # BUILD_LOG=1 tees every sub-make into logs/<subdir>/<target>.txt. Without it
           # the parallel make swallows the failing command's output and leaves only a
           # bare "ERROR: target/linux failed to build.", which says nothing about why.
-          echo "=== Building everything ==="
-          if make -j"$(nproc)" BUILD_LOG=1; then
-            echo "=== parallel build succeeded ==="
-          else
-            echo "=== parallel build FAILED — dumping the logs it left behind ==="
+          # Called before every serial retry, so the evidence survives the rerun.
+          dump_logs() {
+            echo "=== build FAILED — dumping the logs it left behind ==="
             # Newest logs first: the failing target is almost always among them.
             find logs -name '*.txt' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -5 |
               while read -r _ LOGFILE; do
                 echo "----------------- tail of $LOGFILE -----------------"
                 tail -80 "$LOGFILE"
               done
-            # Keep them: the -j1 retry below would otherwise overwrite the evidence.
+            # Keep them: the -j1 retry would otherwise overwrite the evidence.
             # Never let the bookkeeping abort the step — the retry matters more.
             rm -rf logs-parallel-failure || true
             [ -d logs ] && mv logs logs-parallel-failure || echo "(no logs/ dir produced)"
+          }
+
+          # Step 3: Build and install all packages — parallel, this part scales fine.
+          echo "=== Building packages (parallel) ==="
+          if ! make -j"$(nproc)" package/install BUILD_LOG=1; then
+            dump_logs
+            echo "=== retrying packages serially ==="
+            make -j1 V=s package/install
+          fi
+
+          # Step 4: Assemble the images SERIALLY — deliberately, not as a retry.
+          #
+          # ubinize builds snand-factory.bin with a "recovery" volume whose source
+          # (...-initramfs-recovery.itb) is produced by a sibling job, and the upstream
+          # recipe never declares that dependency. Under -j it loses the race and the
+          # whole run dies with `ubinize: error!: cannot stat ... referred from section
+          # "recovery"` (seen in runs 31921227258 and 31930683282); under -j1 the
+          # ordering is serial and it always works. Costs ~7 min out of ~1 h 25 min.
+          echo "=== Assembling images (serial: upstream ubinize race, see comment) ==="
+          if ! make -j1 target/install BUILD_LOG=1; then
+            dump_logs
+            exit 1
+          fi
+
+          # Step 5: Finish world — package index, checksums, buildinfo, profiles.json.
+          # Both heavy stages above are stamped by now, so this does not redo them.
+          echo "=== Finishing world (indexes, checksums, buildinfo) ==="
+          if ! make -j"$(nproc)" BUILD_LOG=1; then
+            dump_logs
             echo "=== retrying serially ==="
             make -j1 V=s
           fi
