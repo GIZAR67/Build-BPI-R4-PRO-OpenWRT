@@ -102,7 +102,25 @@ jobs:
           # mosdns требует Go >= 1.25, в дереве 1.23.10 и GOTOOLCHAIN=local.
           # DNS-форвардер нам не нужен: служба и так гасится 99-extra-services-off.
           rm -rf feeds/small/mosdns package/feeds/small/mosdns
-          echo "Removed mihomo/nikki/clashoo/mosdns packages"
+          # v2ray-plugin — та же стена: go.mod требует Go >= 1.25.5. Транспорт Shadowsocks
+          # для ssr-plus, в нашей схеме (AmneziaWG + xray) не задействован.
+          rm -rf feeds/small/v2ray-plugin package/feeds/small/v2ray-plugin
+          echo "Removed mihomo/nikki/clashoo/mosdns/v2ray-plugin packages"
+
+      - name: Let Go Fetch Its Own Toolchain
+        working-directory: ${{ env.OPENWRT_DIR }}
+        run: |
+          # Дерево — форк OpenWrt 24.10, в нём Go 1.23.10. Прокси-стек фида small уехал вперёд:
+          # xray-core 26.3.27 требует go 1.26, sing-box 1.13.18 — go 1.24.7, v2ray-plugin — 1.25.5.
+          # golang-package.mk прибивает GOTOOLCHAIN=local, и go отказывается работать вместо того,
+          # чтобы дотянуть нужный тулчейн. GOPROXY OpenWrt не переопределяет (см. список
+          # Unmodified в golang-values.mk), так что с auto go берёт тулчейн с proxy.golang.org
+          # и складывает в GOMODCACHE ($(DL_DIR)/go-mod-cache) — тот самый кеш, который больше
+          # не выедается зачисткой dl.
+          MK=feeds/packages/lang/golang/golang-package.mk
+          grep -q 'GOTOOLCHAIN=local' "$MK" || { echo "ERROR: GOTOOLCHAIN=local не найден в $MK — рецепт изменился, пересмотреть"; exit 1; }
+          sed -i 's/GOTOOLCHAIN=local/GOTOOLCHAIN=auto/' "$MK"
+          grep -n 'GOTOOLCHAIN' "$MK"
 
       - name: Load Build Config
         run: |
