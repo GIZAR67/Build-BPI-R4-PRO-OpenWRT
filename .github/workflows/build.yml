@@ -153,7 +153,17 @@ jobs:
       - name: Download Sources
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          find dl -size -1024c -delete
+          # Drop truncated downloads — a failed fetch leaves a stub where a tarball
+          # should be. -maxdepth 1 -type f is not cosmetic: the source tree ships a
+          # populated dl/go-mod-cache (extracted Go modules), and an unscoped sweep
+          # deletes every module file under 1 KB. That is what killed run
+          # 31959567238: whole packages whose files are all tiny — sing's
+          # common/{logger,debug,auth,random,replay}, protobuf's
+          # internal/editiondefaults, utls's internal/{boring,helper} — vanished,
+          # and xray-core failed with "no required module provides package ..."
+          # while the module itself sat right there in the cache. Go never repairs
+          # it: the module directory exists, so it is not re-extracted.
+          find dl -maxdepth 1 -type f -size -1024c -delete
           make download -j"$(nproc)" || make download -j1 V=s
 
       - name: Apply Custom Files Overlay
@@ -208,38 +218,12 @@ jobs:
             [ -d logs ] && mv logs logs-parallel-failure || echo "(no logs/ dir produced)"
           }
 
-          # Step 2b: The Go packages, one at a time and BEFORE the parallel pass.
-          #
-          # xray-core and sing-box share a single module cache (dl/go-mod-cache). Under
-          # -j they compile at the same moment and each reads modules the other is still
-          # unpacking: run 31953661706 died with "no required module provides package
-          # google.golang.org/protobuf/internal/editiondefaults" in xray-core, and once
-          # the cache was left half-written, "undefined: Direct" in x/net inside
-          # sing-box — a file that library ships itself. The damage persists, so the
-          # -j1 retry inherited it and failed the same way.
-          #
-          # Serial between the two costs almost nothing: go already saturates every core
-          # inside one package, -j1 only stops the two from overlapping.
-          echo "=== Building Go packages (serial: shared module cache, see comment) ==="
-          for GOPKG in package/feeds/packages/xray-core package/feeds/packages/sing-box; do
-            if ! make -j1 "$GOPKG/compile" BUILD_LOG=1; then
-              dump_logs
-              echo "=== $GOPKG failed — wiping the Go module cache and retrying once ==="
-              rm -rf dl/go-mod-cache
-              make -j1 V=s "$GOPKG/compile"
-            fi
-          done
-
           # Step 3: Compile the packages — parallel, this part scales fine.
           # Also where the host opkg comes from: package/Makefile hangs
           # `package/system/opkg/host/compile` off this target and off nothing else.
           echo "=== Building packages (parallel) ==="
           if ! make -j"$(nproc)" package/compile BUILD_LOG=1; then
             dump_logs
-            # A corrupt dl/go-mod-cache outlives the failure and makes the retry fail
-            # identically (run 31953661706). Anything Go re-downloads in minutes, so
-            # the serial pass always starts from a clean cache.
-            rm -rf dl/go-mod-cache
             echo "=== retrying package build serially ==="
             make -j1 V=s package/compile
           fi
