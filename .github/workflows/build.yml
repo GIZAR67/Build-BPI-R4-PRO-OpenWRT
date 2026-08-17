@@ -99,7 +99,10 @@ jobs:
           for P in nikki clashoo luci-app-nikki; do
             rm -rf "feeds/small/$P" "package/feeds/small/$P"
           done
-          echo "Removed mihomo/nikki/clashoo packages"
+          # mosdns требует Go >= 1.25, в дереве 1.23.10 и GOTOOLCHAIN=local.
+          # DNS-форвардер нам не нужен: служба и так гасится 99-extra-services-off.
+          rm -rf feeds/small/mosdns package/feeds/small/mosdns
+          echo "Removed mihomo/nikki/clashoo/mosdns packages"
 
       - name: Load Build Config
         run: |
